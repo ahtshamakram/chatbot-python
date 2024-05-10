@@ -1,0 +1,116 @@
+import pyrebase
+from flask import Flask, redirect, render_template, request, url_for
+import pickle
+import json
+import random
+
+app = Flask(__name__)
+
+# Add your own Firebase configuration details
+config = {
+    'apiKey': "AIzaSyCFgBuVlqCfNqF2PZsqjgy3XnX3lpd6hxo",
+    'authDomain': "chatbot-c790c.firebaseapp.com",
+    'projectId': "chatbot-c790c",
+    'storageBucket': "chatbot-c790c.appspot.com",
+    'messagingSenderId': "212612115477",
+    'appId': "1:212612115477:web:9a402a32ec10ff7d45721c",
+    'measurementId': "G-BQSDSJSZ10",
+    'databaseURL': "https://chatbot-c790c-default-rtdb.firebaseio.com/"
+}
+
+# Initialize Firebase
+firebase = pyrebase.initialize_app(config)
+auth = firebase.auth()
+db = firebase.database()
+
+# Initialize person as dictionary
+person = {"is_logged_in": False, "name": "", "email": "", "uid": ""}
+
+# Login
+@app.route("/")
+def login():
+    return render_template("login.html")
+
+# Sign up / Register
+@app.route("/signup")
+def signup():
+    return render_template("signup.html")
+
+# Handle login form submission
+@app.route("/result", methods=["POST"])
+def result():
+    if request.method == "POST":
+        result = request.form
+        email = result["email"]
+        password = result["pass"]
+        try:
+            user = auth.sign_in_with_email_and_password(email, password)
+            global person
+            person["is_logged_in"] = True
+            person["email"] = user["email"]
+            person["uid"] = user["localId"]
+            data = db.child("users").get()
+            person["name"] = data.val()[person["uid"]]["name"]
+            return redirect(url_for('home'))
+        except:
+            return redirect(url_for('login'))
+    else:
+        return redirect(url_for('login'))
+
+# Handle signup form submission
+@app.route("/register", methods=["POST"])
+def register():
+    if request.method == "POST":
+        result = request.form
+        email = result["email"]
+        password = result["pass"]
+        name = result["name"]
+        try:
+            auth.create_user_with_email_and_password(email, password)
+            user = auth.sign_in_with_email_and_password(email, password)
+            global person
+            person["is_logged_in"] = True
+            person["email"] = user["email"]
+            person["uid"] = user["localId"]
+            person["name"] = name
+            data = {"name": name, "email": email}
+            db.child("users").child(person["uid"]).set(data)
+            return redirect(url_for('home'))
+        except:
+            return redirect(url_for('login'))
+    else:
+        return redirect(url_for('signup'))
+# Load the trained model and vectorizer
+with open('model.pkl', 'rb') as f:
+    best_model = pickle.load(f)
+
+with open('vectorizer.pkl', 'rb') as f:
+    vectorizer = pickle.load(f)
+
+# Load the intents data
+with open('sentences.json', 'r') as f:
+    intents = json.load(f)
+
+def chatbot_response(user_input):
+    input_text = vectorizer.transform([user_input])
+    predicted_intent = best_model.predict(input_text)[0]
+
+    for intent in intents['intents']:
+        if intent['tag'] == predicted_intent:
+            response = random.choice(intent['responses'])
+            break
+
+    return response
+
+@app.route('/home')
+def home():
+    return render_template('index.html')
+
+@app.route('/chat', methods=['POST'])
+def chat():
+    user_input = request.form['user_input']
+    response = chatbot_response(user_input)
+    return response
+
+if __name__ == '__main__':
+    app.run(debug=True)
